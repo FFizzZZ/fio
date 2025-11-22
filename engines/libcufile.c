@@ -162,6 +162,7 @@ static int fio_libcufile_init(struct thread_data *td)
 	CUfileError_t status;
 	int initialized;
 	int rc;
+	int gpu_count = 0;
 
 	pthread_mutex_lock(&running_lock);
 	if (running == 0) {
@@ -174,6 +175,34 @@ static int fio_libcufile_init(struct thread_data *td)
 					fio_libcufile_get_cuda_error(status));
 			else
 				cufile_initialized = 1;
+
+			/* enable nvlink */
+			check_cudaruntimecall(cudaGetDeviceCount(&gpu_count), rc);
+			if (rc != 0)
+				return 1;
+			if (gpu_count == 0)
+				return 1;
+			for (int i = 0; i < gpu_count; i++) {
+				check_cudaruntimecall(cudaSetDevice(i), rc);
+				if (rc != 0)
+					return 1;
+			}
+			for (int i = 0; i < gpu_count; i++) {
+				for (int j = i + 1; j < gpu_count; j++) {
+					check_cudaruntimecall(cudaSetDevice(i), rc);
+					if (rc != 0)
+						return 1;
+					check_cudaruntimecall(cudaDeviceEnablePeerAccess(j, 0), rc);
+					if (rc != 0)
+						return 1;
+					check_cudaruntimecall(cudaSetDevice(j), rc);
+					if (rc != 0)
+						return 1;
+					check_cudaruntimecall(cudaDeviceEnablePeerAccess(i, 0), rc);
+					if (rc != 0)
+						return 1;
+				}
+			}
 		}
 	}
 	running++;
